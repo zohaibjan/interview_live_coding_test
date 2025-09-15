@@ -1,0 +1,279 @@
+{% extends "base.html" %}
+
+{% block title %}Problem {{ problem_id }} - Live Coding Platform{% endblock %}
+
+{% block content %}
+<div class="row h-100">
+    <!-- Left Panel - Problem Description -->
+    <div class="col-md-6 sidebar border-end">
+        <div id="problem-content">
+            <div class="text-center">
+                <div class="spinner-border" role="status">
+                    <span class="visually-hidden">Loading problem...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Right Panel - Code Editor and Results -->
+    <div class="col-md-6 main-content">
+        <div class="mb-3">
+            <div class="d-flex justify-content-between align-items-center">
+                <h4>Code Editor</h4>
+                <div>
+                    <select class="form-select d-inline-block w-auto me-2" id="language-select" disabled>
+                        <option value="python">Python</option>
+                    </select>
+                    <button class="btn btn-success" id="run-code" disabled>Run Code</button>
+                    <button class="btn btn-primary" id="submit-code" disabled>Submit</button>
+                </div>
+            </div>
+        </div>
+        
+        <div id="code-editor" class="code-editor mb-3"></div>
+        
+        <div id="results-section" style="display: none;">
+            <h5>Results</h5>
+            <div id="results-content" class="test-results p-3 border rounded"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Login Required Modal -->
+<div class="modal fade" id="loginRequiredModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Login Required</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>You need to login to run and submit code.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="window.location.href='/'">Go to Login</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let editor;
+    let currentProblem;
+    const problemId = {{ problem_id }};
+    
+    // Initialize editor (fallback to textarea if CodeMirror is not available)
+    function initializeEditor(starterCode = '') {
+        const editorDiv = document.getElementById('code-editor');
+        
+        if (typeof CodeMirror !== 'undefined') {
+            // Use CodeMirror if available
+            editor = CodeMirror(editorDiv, {
+                mode: 'python',
+                theme: 'monokai',
+                lineNumbers: true,
+                indentUnit: 4,
+                indentWithTabs: false,
+                value: starterCode
+            });
+        } else {
+            // Fallback to textarea
+            editorDiv.innerHTML = `
+                <textarea id="code-textarea" class="form-control" rows="20" style="font-family: 'Courier New', monospace; font-size: 14px;">${starterCode}</textarea>
+            `;
+            // Create a mock editor object
+            editor = {
+                getValue: () => document.getElementById('code-textarea').value,
+                setValue: (value) => { document.getElementById('code-textarea').value = value; }
+            };
+        }
+    }
+    
+    // Load problem details
+    async function loadProblem() {
+        try {
+            const response = await API.request(`/api/problems/${problemId}`);
+            currentProblem = response.data;
+            
+            displayProblem(currentProblem);
+            initializeEditor(currentProblem.starter_code || '# Write your solution here\n');
+            
+            // Enable buttons if logged in
+            if (Auth.isLoggedIn()) {
+                document.getElementById('run-code').disabled = false;
+                document.getElementById('submit-code').disabled = false;
+                document.getElementById('language-select').disabled = false;
+            }
+            
+        } catch (error) {
+            console.error('Error loading problem:', error);
+            document.getElementById('problem-content').innerHTML = '<p class="text-danger">Error loading problem. Please try again later.</p>';
+        }
+    }
+    
+    // Display problem details
+    function displayProblem(problem) {
+        const difficultyClass = `difficulty-${problem.difficulty}`;
+        
+        const testCasesHtml = problem.test_cases && problem.test_cases.length > 0 
+            ? problem.test_cases.map((tc, index) => `
+                <div class="border rounded p-2 mb-2">
+                    <strong>Example ${index + 1}:</strong><br>
+                    <strong>Input:</strong> <code>${tc.input_data}</code><br>
+                    <strong>Output:</strong> <code>${tc.expected_output}</code>
+                </div>
+            `).join('')
+            : '<p>No example test cases available.</p>';
+        
+        const problemHtml = `
+            <div class="problem-description">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h3>${problem.title}</h3>
+                    <div>
+                        <span class="badge ${difficultyClass}">${problem.difficulty.toUpperCase()}</span>
+                        <span class="badge bg-secondary">${problem.time_limit}s</span>
+                        <span class="badge bg-info">${problem.memory_limit}MB</span>
+                    </div>
+                </div>
+                
+                <div class="mb-4">
+                    ${problem.description.replace(/\n/g, '<br>')}
+                </div>
+                
+                <h5>Examples:</h5>
+                ${testCasesHtml}
+            </div>
+        `;
+        
+        document.getElementById('problem-content').innerHTML = problemHtml;
+    }
+    
+    // Run or submit code
+    async function executeCode(isSubmission = false) {
+        if (!Auth.isLoggedIn()) {
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('loginRequiredModal')).show();
+            return;
+        }
+        
+        const code = editor.getValue();
+        if (!code.trim()) {
+            alert('Please write some code first!');
+            return;
+        }
+        
+        const button = document.getElementById(isSubmission ? 'submit-code' : 'run-code');
+        const originalText = button.textContent;
+        button.disabled = true;
+        button.textContent = isSubmission ? 'Submitting...' : 'Running...';
+        
+        try {
+            const response = await API.request('/api/submissions/', {
+                method: 'POST',
+                body: JSON.stringify({
+                    problem_id: problemId,
+                    code: code,
+                    language: 'python'
+                })
+            });
+            
+            if (response.status === 200) {
+                displayResults(response.data, isSubmission);
+            } else {
+                alert('Error executing code: ' + response.data.detail);
+            }
+        } catch (error) {
+            console.error('Error executing code:', error);
+            alert('Error executing code. Please try again.');
+        } finally {
+            button.disabled = false;
+            button.textContent = originalText;
+        }
+    }
+    
+    // Display execution results
+    function displayResults(result, isSubmission) {
+        const statusClass = `status-${result.status}`;
+        const statusText = result.status.replace(/_/g, ' ').toUpperCase();
+        
+        let resultsHtml = `
+            <div class="alert alert-${result.status === 'accepted' ? 'success' : 'danger'} d-flex justify-content-between align-items-center">
+                <div>
+                    <strong class="${statusClass}">${statusText}</strong>
+                    ${result.test_cases_passed}/${result.total_test_cases} test cases passed
+                </div>
+                <div>
+                    ${result.execution_time ? `Time: ${result.execution_time.toFixed(3)}s` : ''}
+                    ${result.memory_used ? ` | Memory: ${result.memory_used}MB` : ''}
+                </div>
+            </div>
+        `;
+        
+        if (result.error_message) {
+            resultsHtml += `
+                <div class="alert alert-warning">
+                    <strong>Error:</strong><br>
+                    <pre class="mb-0">${result.error_message}</pre>
+                </div>
+            `;
+        }
+        
+        if (result.output && result.output !== 'undefined' && result.output !== '[]') {
+            try {
+                const outputs = JSON.parse(result.output);
+                if (Array.isArray(outputs) && outputs.length > 0) {
+                    resultsHtml += '<div class="mt-3"><strong>Test Case Results:</strong></div>';
+                    outputs.forEach((output, index) => {
+                        const passedClass = output.passed ? 'border-success' : 'border-danger';
+                        resultsHtml += `
+                            <div class="card ${passedClass} border-2 mb-2">
+                                <div class="card-body py-2">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <small><strong>Test Case ${index + 1}</strong></small>
+                                        <span class="badge bg-${output.passed ? 'success' : 'danger'}">${output.passed ? 'PASSED' : 'FAILED'}</span>
+                                    </div>
+                                    <div class="mt-1">
+                                        <small><strong>Input:</strong> <code>${output.input}</code></small><br>
+                                        <small><strong>Expected:</strong> <code>${output.expected}</code></small><br>
+                                        <small><strong>Actual:</strong> <code>${output.actual}</code></small>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                }
+            } catch (e) {
+                // If output is not JSON, display as is
+                resultsHtml += `
+                    <div class="mt-3">
+                        <strong>Output:</strong><br>
+                        <pre class="bg-light p-2 rounded">${result.output}</pre>
+                    </div>
+                `;
+            }
+        }
+        
+        document.getElementById('results-content').innerHTML = resultsHtml;
+        document.getElementById('results-section').style.display = 'block';
+        
+        // Scroll to results
+        document.getElementById('results-section').scrollIntoView({ behavior: 'smooth' });
+        
+        if (isSubmission && result.status === 'accepted') {
+            // Show success message for submissions
+            setTimeout(() => {
+                alert('🎉 Congratulations! Your solution has been accepted!');
+            }, 500);
+        }
+    }
+    
+    // Event listeners
+    document.getElementById('run-code').addEventListener('click', () => executeCode(false));
+    document.getElementById('submit-code').addEventListener('click', () => executeCode(true));
+    
+    // Load problem on page load
+    document.addEventListener('DOMContentLoaded', loadProblem);
+</script>
+{% endblock %}

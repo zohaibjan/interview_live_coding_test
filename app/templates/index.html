@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="jumbotron bg-primary text-white p-5 rounded mb-4">
+            <h1 class="display-4">Welcome to Live Coding Interview Platform!</h1>
+            <p class="lead">Practice your coding skills with real-time code execution and testing, just like in technical interviews.</p>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-12">
+        <h2>Featured Problems</h2>
+        <div id="problems-list">
+            <div class="text-center">
+                <div class="spinner-border" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Login Modal -->
+<div class="modal fade" id="loginModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Login</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="loginForm">
+                    <div class="mb-3">
+                        <label for="loginUsername" class="form-label">Username</label>
+                        <input type="text" class="form-control" id="loginUsername" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="loginPassword" class="form-label">Password</label>
+                        <input type="password" class="form-control" id="loginPassword" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">Login</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Register Modal -->
+<div class="modal fade" id="registerModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Register</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="registerForm">
+                    <div class="mb-3">
+                        <label for="registerUsername" class="form-label">Username</label>
+                        <input type="text" class="form-control" id="registerUsername" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="registerEmail" class="form-label">Email</label>
+                        <input type="email" class="form-control" id="registerEmail" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="registerFullName" class="form-label">Full Name</label>
+                        <input type="text" class="form-control" id="registerFullName">
+                    </div>
+                    <div class="mb-3">
+                        <label for="registerPassword" class="form-label">Password</label>
+                        <input type="password" class="form-control" id="registerPassword" required>
+                    </div>
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="registerInterviewer">
+                        <label class="form-check-label" for="registerInterviewer">
+                            I am an interviewer (can create problems)
+                        </label>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">Register</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Load problems
+    async function loadProblems() {
+        try {
+            const response = await API.request('/api/problems/');
+            const problems = response.data;
+            
+            const problemsList = document.getElementById('problems-list');
+            if (problems.length === 0) {
+                problemsList.innerHTML = '<p>No problems available yet. Check back later!</p>';
+                return;
+            }
+            
+            const problemsHtml = problems.map(problem => `
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h5 class="card-title">${problem.title}</h5>
+                                <span class="badge difficulty-${problem.difficulty}">${problem.difficulty.toUpperCase()}</span>
+                                <span class="badge bg-secondary">${problem.time_limit}s</span>
+                            </div>
+                            <div>
+                                <a href="/problem/${problem.id}" class="btn btn-primary">Solve</a>
+                            </div>
+                        </div>
+                        <p class="card-text mt-2">${problem.description.substring(0, 200)}...</p>
+                    </div>
+                </div>
+            `).join('');
+            
+            problemsList.innerHTML = problemsHtml;
+        } catch (error) {
+            console.error('Error loading problems:', error);
+            document.getElementById('problems-list').innerHTML = '<p>Error loading problems. Please try again later.</p>';
+        }
+    }
+    
+    // Handle login
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const username = document.getElementById('loginUsername').value;
+        const password = document.getElementById('loginPassword').value;
+        
+        try {
+            const formData = new FormData();
+            formData.append('username', username);
+            formData.append('password', password);
+            
+            const response = await fetch('/api/auth/token', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+                Auth.setToken(data.access_token);
+                bootstrap.Modal.getInstance(document.getElementById('loginModal')).hide();
+                updateAuthSection();
+                location.reload();
+            } else {
+                alert('Login failed: ' + data.detail);
+            }
+        } catch (error) {
+            alert('Login failed: ' + error.message);
+        }
+    });
+    
+    // Handle registration
+    document.getElementById('registerForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const userData = {
+            username: document.getElementById('registerUsername').value,
+            email: document.getElementById('registerEmail').value,
+            full_name: document.getElementById('registerFullName').value,
+            password: document.getElementById('registerPassword').value,
+            is_interviewer: document.getElementById('registerInterviewer').checked
+        };
+        
+        try {
+            const response = await API.request('/api/auth/register', {
+                method: 'POST',
+                body: JSON.stringify(userData)
+            });
+            
+            if (response.status === 200) {
+                alert('Registration successful! Please login.');
+                bootstrap.Modal.getInstance(document.getElementById('registerModal')).hide();
+                bootstrap.Modal.getOrCreateInstance(document.getElementById('loginModal')).show();
+            } else {
+                alert('Registration failed: ' + response.data.detail);
+            }
+        } catch (error) {
+            alert('Registration failed: ' + error.message);
+        }
+    });
+    
+    // Load problems on page load
+    document.addEventListener('DOMContentLoaded', loadProblems);
+</script>
+{% endblock %}
