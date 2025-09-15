@@ -1,0 +1,27 @@
+spec:
+  containers:
+  - name: coding-interview-app
+    image: /your-database/your-schema/your-repository/coding-interview-platform:latest
+    env:
+      DATABASE_URL: postgresql://username:password@your-db-host:5432/coding_test
+      SECRET_KEY: your-production-secret-key-here-change-this
+      REDIS_URL: redis://your-redis-host:6379
+      MAX_EXECUTION_TIME: "30"
+      MAX_MEMORY_LIMIT: "128"
+    resources:
+      requests:
+        cpu: 1
+        memory: 2Gi
+      limits:
+        cpu: 2
+        memory: 4Gi
+    readinessProbe:
+      port: 8000
+      path: /health
+    livenessProbe:
+      port: 8000
+      path: /health
+  endpoints:
+  - name: app-endpoint
+    port: 8000
+    public: true

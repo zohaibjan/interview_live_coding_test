@@ -240,3 +240,7 @@ fabric.properties
 # Database files
 *.db
 coding_test.db
+
+# Generated deployment files
+spcs-spec-generated.yaml
+deploy-service.sql
